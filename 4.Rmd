@@ -1,0 +1,167 @@
+---
+title: "Homework4_Group02"
+Authors: Amey Bansode, Srushti Shah, Bhavan Mehta, Sahiti Agasthi, Amruta Tawde
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r loadpackages, warning=FALSE, message=FALSE}
+pacman::p_load(caret, data.table, MASS, ggplot2, gains, dplyr,ISLR,rpart, rpart.plot, caret, tree, randomForest, gbm)
+library(ISLR)
+data(Hitters)
+#summary(Hitters)
+```
+
+# 1. Remove the observations with unknown salary information. How many observations were removed in this process?
+
+```{r}
+Hitt_nm <- na.omit(Hitters,cols="Salary")
+sum(is.na(Hitters))
+nrow(Hitters) - nrow(Hitt_nm)
+#summary(Hitt_nm)
+```
+There were 59 observations which had unknown salary information and were removed in the process.
+
+# 2. Generate log-transform the salaries. Can you justify this transformation? 
+
+```{r}
+boxplot(Hitt_nm$Salary)
+Hitt_nm$Salary <- log10(Hitt_nm$Salary)
+Hitt_nm$Salary
+boxplot(Hitt_nm$Salary)
+```
+This log-transformation is justified as the Salary of Hitters is a highly skewed distribution. The log transformation makes it less skewed and easier for interpretation.
+
+# 3. Create a scatterplot with Hits on the y-axis and Years on the x-axis using all the observations. Color code the observations using the log Salary variable. What patterns do you notice on this chart, if any?
+
+```{r}
+library(dplyr)
+library(ggplot2)
+hittersPlot <- ggplot(Hitt_nm, aes(x = Hitt_nm$Years, y = Hitt_nm$Hits, col = Hitt_nm$Salary))+
+  geom_point()
+print(hittersPlot + scale_colour_gradient(low = "yellow", high = "red"))
+```
+Observation: The salary of the hitter generally increases with the increase in number of years, especially after 5 years, with few outliers/exceptions. Also, there is no visible relation between number of hits and salary as the salaries are spread across the whole range of Hits.
+
+# 4. Run a linear regression model of Log Salary on all the predictors using the entire dataset. Use regsubsets() function to perform best subset selection from the regression model. Identify the best model using BIC. Which predictor variables are included in this (best) model?
+
+```{r}
+library(leaps)
+regmodel <- regsubsets(Salary ~., data = Hitt_nm, nvmax = 19)
+summary(regmodel)
+regmodel_summary <- summary(regmodel)
+regmodel_summary$bic
+
+plot(regmodel_summary$bic, xlab = "Number of variables ", ylab = "BIC")
+
+coef(regmodel,8)
+```
+It is seen that BIC values remain nearly the same for first 8 models after which the BIC values start decreasing. We consider the model with 8 best predictors to be the best model using exhaustive search. Based on this, the 8 best predictors of salary are AtBat, Hits, Walks, Years, CRuns, CWalks, DivisionW and PutOuts.
+
+# 5. Now create a training data set consisting of 80 percent of the observations, and a test data set consisting of the remaining observations.
+
+```{r}
+set.seed(42)
+training.index <- createDataPartition(Hitt_nm$Salary, p = 0.8, list = FALSE)
+Hitt_nm.train <- Hitt_nm[training.index, ]
+Hitt_nm.valid <- Hitt_nm[-training.index, ]
+```
+
+# 6. Generate a regression tree of log Salary using only Years and Hits variables from the training data set. Which players are likely to receive highest salaries according to this model? Write down the rule and elaborate on it.
+
+```{r}
+tree.hitters <- tree(Salary ~ Hits + Years, data = Hitt_nm.train)
+summary(tree.hitters)
+
+plot(tree.hitters)
+text(tree.hitters, pretty = 0)
+```
+We can see that the highest salary which is obtained from the Regression tree is 2.917
+
+In order to get that highest salary, the rule is as follows:
+"IF (Years > 4.5) AND (Hits > 118) THEN SALARY= 2.917"
+
+ The players who have
+[(Number of years in the major leagues > 4.5) AND (Number of hits in 1986 > 118)] are likely to receive the highest salaries according to this model.
+
+Elaboration:
+1. Our aim is to get to the number 2.917(which is the highest number among the     leaf nodes according to this model), If we consider the left branch of the       tree as YES (agrees to the condition) and right branch as NO (does not agree to   the condition), We see that the number 2.917 is to the right of 1st condition,   so we need to go to the right branch of 1st condition(Years < 4.5) which is the   NO  part, so it implies that Years is not less than 4.5, it means Years > 4.5
+2. Now we arrived at 2nd condition(Hits < 118) and the number 2.917 is towards     the right of the branch which is the NO part. Hence the 2nd condition becomes    Hits not less than 118, it means Hits > 118
+3. Finally, summing up the rules, we have the final rule as follows in order to    achieve the highest salary.
+  "IF (Years > 4.5) AND (Hits > 118) THEN SALARY= 2.917"
+
+# 7. Now create a regression tree using all the variables in the training data set. Perform boosting on the training set with 1,000 trees for a range of values of the shrinkage parameter λ. Produce a plot with different shrinkage values on the xaxis and the corresponding training set MSE on the y-axis. 
+
+```{r}
+#Regression Tree
+set.seed(42)
+hitters.tree <- tree(Salary~., Hitt_nm, subset = training.index)
+summary(hitters.tree)
+
+plot(hitters.tree)
+text(hitters.tree, pretty = 0)
+
+
+
+set.seed(1)
+powers = seq(-10, -0.2, by = 0.1)
+lambdas = 10^powers
+train.err = rep(NA, length(lambdas))
+for (i in 1:length(lambdas)) {
+    boost.hitters = gbm(Salary ~ ., data = Hitt_nm.train, distribution = "gaussian", n.trees = 1000, shrinkage = lambdas[i])
+    pred.train = predict(boost.hitters, Hitt_nm.train, n.trees = 1000)
+    train.err[i] = mean((pred.train - Hitt_nm.train$Salary)^2)
+}
+plot(lambdas, train.err, type = "b", xlab = "Shrinkage values", ylab = "Training MSE")
+
+summary(boost.hitters)
+```
+
+# 8. Produce a plot with different shrinkage values on the x-axis and the corresponding test set MSE on the y-axis.
+
+```{r}
+set.seed(1)
+powers.test = seq(-10, -0.2, by = 0.1)
+lambdas.test= 10^powers
+valid.err = rep(NA, length(lambdas.test))
+for (i in 1:length(lambdas.test)) {
+    boost.valid = gbm(Salary ~ ., data = Hitt_nm.train, distribution = "gaussian", n.trees = 1000, shrinkage = lambdas.test[i])
+    pred.test = predict(boost.valid, Hitt_nm.valid, n.trees = 1000)
+    valid.err[i] = mean((pred.test - Hitt_nm.valid$Salary)^2)
+}
+plot(lambdas, valid.err, type = "b", xlab = "Shrinkage values", ylab = "Test MSE")
+
+```
+
+# 9. Which variables appear to be the most important predictors in the boosted model?
+
+```{r}
+summary(boost.valid)
+```
+Observation: If we set the cutoff for the relative influence as 6, 
+the predictors having higher influence on the model are CAtBat, PutOuts, 
+CHmRun, Walks, Hits.
+
+# 10. Now apply bagging to the training set. What is the test set MSE for this approach?
+
+```{r}
+#Bagging
+set.seed(42)
+bag.Hitt_nm <- randomForest(Salary~., data=Hitt_nm, subset=training.index, mtry = 19, importance = TRUE)  # mtry: number of predictors
+Hitt_nm.test <- Hitt_nm[-training.index, "Salary"]
+
+#bag.hitters
+
+yhat.bag <- predict(bag.Hitt_nm, newdata=Hitt_nm[-training.index,])
+
+#class(yhat.bag)
+#class(hitters.test$Salary)
+plot(yhat.bag, Hitt_nm.test)
+abline(0,1)
+mean((yhat.bag-Hitt_nm.test)^2)
+
+#Observation: The test MSE for this approach is 0.1267 approximately.
+```
